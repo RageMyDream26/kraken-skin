@@ -31,6 +31,44 @@
       position: relative;
     }
 
+    /* Outer edge load indicator lines along the top (CPU) and bottom (GPU) */
+    .load-bar {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 176px;
+      height: 5px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.16);
+      overflow: hidden;
+      z-index: 3;
+    }
+
+    .load-bar-top {
+      top: 10px;
+    }
+
+    .load-bar-bottom {
+      bottom: 10px;
+    }
+
+    .load-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: 999px;
+      transition: width 0.25s ease-out;
+    }
+
+    .cpu-load-fill {
+      background: linear-gradient(90deg, #16a34a 0%, #22c55e 100%);
+      box-shadow: 0 0 8px rgba(34, 197, 94, 0.65);
+    }
+
+    .gpu-load-fill {
+      background: linear-gradient(90deg, #9333ea 0%, #a855f7 100%);
+      box-shadow: 0 0 8px rgba(168, 85, 247, 0.65);
+    }
+
     /* Top (CPU) and Bottom (GPU) halves */
     .half {
       flex: 1;
@@ -135,9 +173,64 @@
       color: #7dd3fc;
       text-transform: uppercase;
     }
+
+    /* Semicircular top (CPU) and bottom (GPU) load indicator arcs */
+    .load-arc-svg {
+      position: absolute;
+      inset: 0;
+      width: 320px;
+      height: 320px;
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .load-arc-track {
+      fill: none;
+      stroke: rgba(148, 163, 184, 0.16);
+      stroke-width: 7;
+      stroke-linecap: round;
+    }
+
+    .load-arc-fill {
+      fill: none;
+      stroke-width: 7;
+      stroke-linecap: round;
+      transition: stroke-dashoffset 0.25s ease-out, stroke 0.25s ease-out;
+    }
+
+    .cpu-arc-fill {
+      stroke: #22c55e;
+    }
+
+    .gpu-arc-fill {
+      stroke: #a855f7;
+    }
   </style>
 </head>
 <body>
+  <!-- Upper & Lower Half-Circle Load Arcs (radius = 152, half-circle length = pi * 152 = 477.52px) -->
+  <svg class="load-arc-svg" viewBox="0 0 320 320" aria-hidden="true">
+    <!-- Top half-circle: CPU Load (180deg -> 0deg across top) -->
+    <path class="load-arc-track" d="M 8 160 A 152 152 0 0 1 312 160" />
+    <path
+      id="cpu-load-arc"
+      class="load-arc-fill cpu-arc-fill"
+      d="M 8 160 A 152 152 0 0 1 312 160"
+      stroke-dasharray="477.52"
+      stroke-dashoffset="477.52"
+    />
+
+    <!-- Bottom half-circle: GPU Load (180deg -> 0deg across bottom) -->
+    <path class="load-arc-track" d="M 8 160 A 152 152 0 0 0 312 160" />
+    <path
+      id="gpu-load-arc"
+      class="load-arc-fill gpu-arc-fill"
+      d="M 8 160 A 152 152 0 0 0 312 160"
+      stroke-dasharray="477.52"
+      stroke-dashoffset="477.52"
+    />
+  </svg>
+
   <!-- Top Section: CPU -->
   <section class="half half-top" aria-label="CPU Metrics">
     <div id="cpu-name" class="hw-name cpu-accent">CPU</div>
@@ -168,6 +261,11 @@
       </div>
     </div>
   </section>
+
+  <!-- Bottom Edge Load Indicator: GPU Load -->
+  <div class="load-bar load-bar-bottom" aria-label="GPU Load">
+    <div id="gpu-load-bar" class="load-fill gpu-load-fill"></div>
+  </div>
 
   <script>
     /**
@@ -203,6 +301,51 @@
       return String(Math.round(value));
     }
 
+    /**
+     * Converts a 0-100 RGB triple to a CSS hex string.
+     * @param {{r:number, g:number, b:number}} rgb
+     * @returns {string}
+     */
+    function rgbToHex({ r, g, b }) {
+      const toHex = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0');
+      return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+    }
+
+    /**
+     * Interpolates between a base RGB color and purple (#a855f7) as load increases.
+     * @param {{r:number, g:number, b:number}} baseRgb
+     * @param {number} loadPct - Percentage load (0 to 100).
+     * @returns {string}
+     */
+    function getLoadPurpleColor(baseRgb, loadPct) {
+      const clamped = Math.max(0, Math.min(100, Number(loadPct) || 0));
+      const purpleRgb = { r: 168, g: 85, b: 247 }; // #a855f7
+      const t = clamped / 100;
+      return rgbToHex({
+        r: baseRgb.r + (purpleRgb.r - baseRgb.r) * t,
+        g: baseRgb.g + (purpleRgb.g - baseRgb.g) * t,
+        b: baseRgb.b + (purpleRgb.b - baseRgb.b) * t
+      });
+    }
+
+    /**
+     * Updates a semicircular load arc (length = pi * 152 = 477.52px) and shifts its color toward purple.
+     * @param {string} arcId - DOM element ID of the arc path.
+     * @param {number|undefined|null} loadValue - Load percentage (0-100).
+     * @param {{r:number, g:number, b:number}} baseRgb - Starting color at 0% load.
+     */
+    function updateLoadArc(arcId, loadValue, baseRgb) {
+      const arcEl = document.getElementById(arcId);
+      if (!arcEl) return;
+      const halfCircumference = Math.PI * 152;
+      const pct = typeof loadValue === 'number' && !Number.isNaN(loadValue)
+        ? Math.max(0, Math.min(100, loadValue))
+        : 0;
+      arcEl.style.strokeDasharray = String(halfCircumference);
+      arcEl.style.strokeDashoffset = String(halfCircumference * (1 - pct / 100));
+      arcEl.style.stroke = getLoadPurpleColor(baseRgb, pct);
+    }
+
     // Expose NZXT CAM Web Integration v1 monitoring hook
     window.nzxt = {
       v1: {
@@ -217,6 +360,7 @@
               document.getElementById('cpu-name').textContent = cleanHardwareName(cpu.name, 'CPU');
               document.getElementById('cpu-temp').textContent = formatMetric(cpu.temperature, '--');
               document.getElementById('cpu-clock').textContent = formatMetric(cpu.frequency, '----');
+              updateLoadArc('cpu-load-arc', cpu.load, { r: 34, g: 197, b: 94 });
             }
 
             if (Array.isArray(gpus) && gpus.length > 0) {
@@ -226,6 +370,7 @@
               document.getElementById('gpu-name').textContent = cleanHardwareName(discreteGpu.name, 'GPU');
               document.getElementById('gpu-temp').textContent = formatMetric(discreteGpu.temperature, '--');
               document.getElementById('gpu-clock').textContent = formatMetric(discreteGpu.frequency, '----');
+              updateLoadArc('gpu-load-arc', discreteGpu.load, { r: 129, g: 140, b: 248 });
             }
           } catch (err) {
             console.error('Error updating NZXT Kraken monitoring data:', err);
