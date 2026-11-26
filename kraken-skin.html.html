@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=320, initial-scale=1.0" />
-  <title>NZXT Kraken Z — Left/Right Hardware Monitor</title>
+  <title>NZXT Kraken Z — Top/Bottom Hardware Monitor</title>
   <style>
     /* Reset spacing and lock viewport to the 320x320 circular Kraken Z LCD */
     *, *::before, *::after {
@@ -24,43 +24,43 @@
       color: #f8fafc;
       font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
       display: flex;
-      flex-direction: row;
+      flex-direction: column;
       align-items: stretch;
       justify-content: space-between;
       border-radius: 50%;
       position: relative;
     }
 
-    /* Left (CPU) and Right (GPU) halves */
+    /* Top (CPU) and Bottom (GPU) halves */
     .half {
       flex: 1;
-      height: 100%;
+      width: 100%;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       text-align: center;
-      min-width: 0;
+      min-height: 0;
     }
 
-    /* Pad left half inward so enlarged text clears the circular top/bottom/left edges */
-    .half-left {
-      padding: 36px 4px 36px 14px;
+    /* Pad top half inward so text clears the circular top edge and center divider */
+    .half-top {
+      padding: 28px 34px 6px 34px;
     }
 
-    /* Pad right half inward so enlarged text clears the circular top/bottom/right edges */
-    .half-right {
-      padding: 36px 14px 36px 4px;
+    /* Pad bottom half inward so text clears the center divider and circular bottom edge */
+    .half-bottom {
+      padding: 6px 34px 28px 34px;
     }
 
-    /* Center vertical divider line */
-    .v-divider {
-      width: 1px;
-      height: 68%;
+    /* Horizontal divider line between top and bottom halves */
+    .h-divider {
+      width: 68%;
+      height: 1px;
       align-self: center;
       flex-shrink: 0;
       background: linear-gradient(
-        180deg,
+        90deg,
         transparent 0%,
         rgba(148, 163, 184, 0.35) 25%,
         rgba(148, 163, 184, 0.35) 75%,
@@ -70,75 +70,75 @@
 
     /* Hardware name label */
     .hw-name {
-      font-size: 19px;
+      font-size: 16px;
       font-weight: 800;
-      letter-spacing: 0.2px;
+      letter-spacing: 0.4px;
       text-transform: uppercase;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
       max-width: 100%;
-      margin-bottom: 8px;
+      margin-bottom: 4px;
     }
 
     .cpu-accent {
-      color: #38bdf8;
+      color: #22c55e;
     }
 
     .gpu-accent {
-      color: #a78bfa;
+      color: #a855f7;
     }
 
-    /* Stacked temperature and clock speed */
+    /* Temperature and clock speed row inside each half */
     .stat-group {
       display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 8px;
+      flex-direction: row;
+      align-items: baseline;
+      justify-content: center;
+      gap: 14px;
     }
 
     .temp {
-      font-size: 54px;
+      font-size: 46px;
       font-weight: 800;
-      line-height: 0.92;
+      line-height: 0.95;
       letter-spacing: -1px;
       font-variant-numeric: tabular-nums;
     }
 
     .clock-box {
       display: flex;
-      flex-direction: column;
-      align-items: center;
+      align-items: baseline;
+      gap: 3px;
       line-height: 1.02;
     }
 
     .clock {
-      font-size: 30px;
+      font-size: 26px;
       font-weight: 800;
-      color: #e2e8f0;
+      color: #ef4444;
       font-variant-numeric: tabular-nums;
     }
 
     .unit {
-      font-size: 19px;
+      font-size: 17px;
       font-weight: 700;
       color: #94a3b8;
       margin-left: 2px;
     }
 
     .clock-unit {
-      font-size: 15px;
+      font-size: 13px;
       font-weight: 800;
-      letter-spacing: 0.5px;
-      color: #64748b;
+      letter-spacing: 0.4px;
+      color: #f87171;
       text-transform: uppercase;
-      margin-top: 2px;
     }
   </style>
 </head>
 <body>
-  <!-- Left Column: CPU -->
-  <section class="half half-left" aria-label="CPU Metrics">
+  <!-- Top Section: CPU -->
+  <section class="half half-top" aria-label="CPU Metrics">
     <div id="cpu-name" class="hw-name cpu-accent">CPU</div>
     <div class="stat-group">
       <div class="temp">
@@ -151,11 +151,11 @@
     </div>
   </section>
 
-  <!-- Vertical Divider Between Left and Right Halves -->
-  <div class="v-divider" aria-hidden="true"></div>
+  <!-- Horizontal Divider Between Top and Bottom Halves -->
+  <div class="h-divider" aria-hidden="true"></div>
 
-  <!-- Right Column: GPU -->
-  <section class="half half-right" aria-label="GPU Metrics">
+  <!-- Bottom Section: GPU -->
+  <section class="half half-bottom" aria-label="GPU Metrics">
     <div id="gpu-name" class="hw-name gpu-accent">GPU</div>
     <div class="stat-group">
       <div class="temp">
