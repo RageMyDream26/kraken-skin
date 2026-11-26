@@ -242,6 +242,7 @@
 
     let hasLiveTelemetry = false;
     let demoStartTime = null;
+    let lastPreviewFrameTime = 0;
 
     /**
      * Converts numeric values, numeric strings, or nested metric objects into a finite number.
@@ -398,19 +399,44 @@
       if (hasLiveTelemetry) return;
       if (demoStartTime === null) demoStartTime = timestamp;
 
-      const elapsedSec = (timestamp - demoStartTime) / 1000;
-      const cpuPct = ((Math.sin(elapsedSec * 1.15) + 1) / 2) * 100;
-      const gpuPct = ((Math.sin(elapsedSec * 1.15 - Math.PI / 2) + 1) / 2) * 100;
+      // Throttle preview arc updates so it stays lightweight on 320x320 LCD/preview WebViews
+      if (timestamp - lastPreviewFrameTime >= 80) {
+        lastPreviewFrameTime = timestamp;
+        const elapsedSec = (timestamp - demoStartTime) / 1000;
+        const cpuPct = ((Math.sin(elapsedSec * 1.15) + 1) / 2) * 100;
+        const gpuPct = ((Math.sin(elapsedSec * 1.15 - Math.PI / 2) + 1) / 2) * 100;
 
-      updateLoadArc('cpu-load-arc', cpuPct, CPU_BASE_RGB);
-      updateLoadArc('gpu-load-arc', gpuPct, GPU_BASE_RGB);
+        updateLoadArc('cpu-load-arc', cpuPct, CPU_BASE_RGB);
+        updateLoadArc('gpu-load-arc', gpuPct, GPU_BASE_RGB);
+      }
 
       requestAnimationFrame(animateLoadPreview);
     }
 
-    // Start preview sweep so arc length (0% -> 50% -> 100%) and purple shift are visible immediately
+    /**
+     * Populates fallback sample telemetry in standalone/browser previews when NZXT CAM
+     * has not pushed a live onMonitoringDataUpdate payload yet.
+     */
+    function applyFallbackPreviewTelemetry() {
+      if (hasLiveTelemetry) return;
+      const cpuEl = document.getElementById('cpu-name');
+      const gpuEl = document.getElementById('gpu-name');
+      if (cpuEl && cpuEl.textContent === 'CPU') {
+        cpuEl.textContent = 'Ryzen 9 7950X';
+        document.getElementById('cpu-temp').textContent = '64';
+        document.getElementById('cpu-clock').textContent = '5150';
+      }
+      if (gpuEl && gpuEl.textContent === 'GPU') {
+        gpuEl.textContent = 'RTX 4090';
+        document.getElementById('gpu-temp').textContent = '58';
+        document.getElementById('gpu-clock').textContent = '2640';
+      }
+    }
+
+    // Start preview sweep and fallback telemetry so standalone previews never look frozen/blank
     updateLoadArc('cpu-load-arc', 50, CPU_BASE_RGB);
     updateLoadArc('gpu-load-arc', 50, GPU_BASE_RGB);
+    setTimeout(applyFallbackPreviewTelemetry, 1500);
     requestAnimationFrame(animateLoadPreview);
 
     // Expose NZXT CAM Web Integration v1 monitoring hook
