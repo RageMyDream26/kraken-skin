@@ -235,6 +235,52 @@
   </section>
 
   <script>
+    const CPU_BASE_RGB = { r: 34, g: 197, b: 94 };
+    const GPU_BASE_RGB = { r: 129, g: 140, b: 248 };
+    const ARC_RADIUS = 152;
+    const HALF_CIRCUMFERENCE = Math.PI * ARC_RADIUS; // ~477.52px for 0%..100% of semicircle
+
+    let hasLiveTelemetry = false;
+    let demoStartTime = null;
+
+    /**
+     * Converts numeric values, numeric strings, or nested metric objects into a finite number.
+     * @param {unknown} raw
+     * @returns {number|undefined}
+     */
+    function toFiniteMetricNumber(raw) {
+      if (typeof raw === 'number') {
+        return Number.isFinite(raw) ? raw : undefined;
+      }
+      if (typeof raw === 'string') {
+        const trimmed = raw.trim().replace('%', '');
+        if (!trimmed) return undefined;
+        const parsed = Number(trimmed);
+        return Number.isFinite(parsed) ? parsed : undefined;
+      }
+      if (raw && typeof raw === 'object') {
+        for (const key of ['value', 'load', 'utilization', 'usage', 'percentage', 'percent', 'current']) {
+          if (key in raw) {
+            const nested = toFiniteMetricNumber(raw[key]);
+            if (nested !== undefined) return nested;
+          }
+        }
+      }
+      return undefined;
+    }
+
+    /**
+     * Normalizes raw load values (0..100 or 0..1 ratio) into a 0..100 percentage.
+     * @param {number} val
+     * @returns {number}
+     */
+    function normalizeLoadPercent(val) {
+      if (val > 0 && val <= 1) {
+        return Math.max(0, Math.min(100, val * 100));
+      }
+      return Math.max(0, Math.min(100, val));
+    }
+
     /**
      * Extracts numeric load percentage (0-100) from NZXT CAM hardware objects.
      * Supports common NZXT CAM property names across SDK/CAM builds.
@@ -243,13 +289,50 @@
      */
     function extractLoadPercent(hw) {
       if (!hw || typeof hw !== 'object') return undefined;
-      const candidates = [hw.load, hw.utilization, hw.usage, hw.totalLoad];
-      for (const val of candidates) {
-        if (typeof val === 'number' && !Number.isNaN(val)) {
-          return val;
+      const candidates = [
+        hw.load,
+        hw.utilization,
+        hw.usage,
+        hw.totalLoad,
+        hw.loadPercent,
+        hw.loadPercentage,
+        hw.gpuLoad,
+        hw.cpuLoad
+      ];
+      for (const candidate of candidates) {
+        const num = toFiniteMetricNumber(candidate);
+        if (num !== undefined) {
+          return normalizeLoadPercent(num);
         }
       }
       return undefined;
+    }
+
+    /**
+     * Formats hardware names cleanly with a fallback label.
+     * @param {unknown} name
+     * @param {string} fallback
+     * @returns {string}
+     */
+    function cleanHardwareName(name, fallback) {
+      if (typeof name !== 'string') return fallback;
+      const cleaned = name
+        .replace(/\(R\)|\(TM\)|Processor|Graphics/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      return cleaned || fallback;
+    }
+
+    /**
+     * Formats numeric telemetry metrics cleanly with a fallback token.
+     * @param {unknown} value
+     * @param {string} fallback
+     * @returns {string}
+     */
+    function formatMetric(value, fallback) {
+      const num = toFiniteMetricNumber(value);
+      if (num === undefined) return fallback;
+      return String(Math.round(num));
     }
 
     /**
@@ -263,7 +346,7 @@
     }
 
     /**
-     * Interpolates between a base RGB color and purple (#a855f7) as load increases.
+     * Interpolates between a base RGB color and purple (#a855f7) as load increases (0% -> 100%).
      * @param {{r:number, g:number, b:number}} baseRgb
      * @param {number} loadPct - Percentage load (0 to 100).
      * @returns {string}
@@ -280,7 +363,8 @@
     }
 
     /**
-     * Updates a semicircular load arc (length = pi * 152 = 477.52px) and shifts its color toward purple.
+     * Updates a semicircular load arc where 0% is empty, 50% is half the arc,
+     * and 100% fills the entire semicircle, shifting smoothly into purple as load increases.
      * @param {string} arcId - DOM element ID of the arc path.
      * @param {number|undefined|null} loadValue - Load percentage (0-100).
      * @param {{r:number, g:number, b:number}} baseRgb - Starting color at 0% load.
@@ -288,23 +372,46 @@
     function updateLoadArc(arcId, loadValue, baseRgb) {
       const arcEl = document.getElementById(arcId);
       if (!arcEl) return;
-      const halfCircumference = Math.PI * 152;
-      const pct = typeof loadValue === 'number' && !Number.isNaN(loadValue)
-        ? Math.max(0, Math.min(100, loadValue))
-        : 0;
-      const dashOffset = String(halfCircumference * (1 - pct / 100));
+      if (loadValue === undefined || loadValue === null || Number.isNaN(Number(loadValue))) {
+        return;
+      }
+      const pct = Math.max(0, Math.min(100, Number(loadValue)));
+      // 0% -> offset = HALF_CIRCUMFERENCE (empty)
+      // 50% -> offset = HALF_CIRCUMFERENCE * 0.5 (half of semicircle)
+      // 100% -> offset = 0 (full semicircle)
+      const dashOffset = String(HALF_CIRCUMFERENCE * (1 - pct / 100));
       const nextColor = getLoadPurpleColor(baseRgb, pct);
-      arcEl.setAttribute('stroke-dasharray', String(halfCircumference));
+      arcEl.setAttribute('stroke-dasharray', String(HALF_CIRCUMFERENCE));
       arcEl.setAttribute('stroke-dashoffset', dashOffset);
       arcEl.setAttribute('stroke', nextColor);
-      arcEl.style.strokeDasharray = String(halfCircumference);
+      arcEl.style.strokeDasharray = String(HALF_CIRCUMFERENCE);
       arcEl.style.strokeDashoffset = dashOffset;
       arcEl.style.stroke = nextColor;
     }
 
-    // Initialize arcs at startup so movement and purple shift are immediately visible
-    updateLoadArc('cpu-load-arc', 35, { r: 34, g: 197, b: 94 });
-    updateLoadArc('gpu-load-arc', 65, { r: 129, g: 140, b: 248 });
+    /**
+     * Animates the semicircular arcs across 5%, 10%, 20%, 25%, 50%, and up to 100%
+     * in preview mode until live NZXT CAM telemetry arrives.
+     * @param {number} timestamp
+     */
+    function animateLoadPreview(timestamp) {
+      if (hasLiveTelemetry) return;
+      if (demoStartTime === null) demoStartTime = timestamp;
+
+      const elapsedSec = (timestamp - demoStartTime) / 1000;
+      const cpuPct = ((Math.sin(elapsedSec * 1.15) + 1) / 2) * 100;
+      const gpuPct = ((Math.sin(elapsedSec * 1.15 - Math.PI / 2) + 1) / 2) * 100;
+
+      updateLoadArc('cpu-load-arc', cpuPct, CPU_BASE_RGB);
+      updateLoadArc('gpu-load-arc', gpuPct, GPU_BASE_RGB);
+
+      requestAnimationFrame(animateLoadPreview);
+    }
+
+    // Start preview sweep so arc length (0% -> 50% -> 100%) and purple shift are visible immediately
+    updateLoadArc('cpu-load-arc', 50, CPU_BASE_RGB);
+    updateLoadArc('gpu-load-arc', 50, GPU_BASE_RGB);
+    requestAnimationFrame(animateLoadPreview);
 
     // Expose NZXT CAM Web Integration v1 monitoring hook
     window.nzxt = {
@@ -312,6 +419,7 @@
         onMonitoringDataUpdate: (data) => {
           try {
             if (!data || typeof data !== 'object') return;
+            hasLiveTelemetry = true;
 
             const { cpus, gpus } = data;
 
@@ -321,7 +429,7 @@
               document.getElementById('cpu-name').textContent = cleanHardwareName(cpu.name, 'CPU');
               document.getElementById('cpu-temp').textContent = formatMetric(cpu.temperature, '--');
               document.getElementById('cpu-clock').textContent = formatMetric(cpu.frequency, '----');
-              updateLoadArc('cpu-load-arc', cpuLoad, { r: 34, g: 197, b: 94 });
+              updateLoadArc('cpu-load-arc', cpuLoad, CPU_BASE_RGB);
             }
 
             if (Array.isArray(gpus) && gpus.length > 0) {
@@ -332,7 +440,7 @@
               document.getElementById('gpu-name').textContent = cleanHardwareName(discreteGpu.name, 'GPU');
               document.getElementById('gpu-temp').textContent = formatMetric(discreteGpu.temperature, '--');
               document.getElementById('gpu-clock').textContent = formatMetric(discreteGpu.frequency, '----');
-              updateLoadArc('gpu-load-arc', gpuLoad, { r: 129, g: 140, b: 248 });
+              updateLoadArc('gpu-load-arc', gpuLoad, GPU_BASE_RGB);
             }
           } catch (err) {
             console.error('Error updating NZXT Kraken monitoring data:', err);
