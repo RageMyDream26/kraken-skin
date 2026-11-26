@@ -43,14 +43,14 @@
       min-height: 0;
     }
 
-    /* Pad top half inward so text clears the circular top edge and center divider */
+    /* Pad top half inward so enlarged name and stats clear the circular top edge */
     .half-top {
-      padding: 28px 34px 6px 34px;
+      padding: 20px 14px 4px 14px;
     }
 
-    /* Pad bottom half inward so text clears the center divider and circular bottom edge */
+    /* Pad bottom half inward so enlarged name and stats clear the circular bottom edge */
     .half-bottom {
-      padding: 6px 34px 28px 34px;
+      padding: 4px 14px 20px 14px;
     }
 
     /* Horizontal divider line between top and bottom halves */
@@ -68,11 +68,12 @@
       );
     }
 
-    /* Hardware name label */
+    /* Hardware name label matched to temperature font size */
     .hw-name {
-      font-size: 16px;
+      font-size: 46px;
       font-weight: 800;
-      letter-spacing: 0.4px;
+      line-height: 0.96;
+      letter-spacing: -0.8px;
       text-transform: uppercase;
       white-space: nowrap;
       overflow: hidden;
@@ -95,7 +96,7 @@
       flex-direction: row;
       align-items: baseline;
       justify-content: center;
-      gap: 14px;
+      gap: 10px;
     }
 
     .temp {
@@ -116,7 +117,7 @@
     .clock {
       font-size: 26px;
       font-weight: 800;
-      color: #ef4444;
+      color: #38bdf8;
       font-variant-numeric: tabular-nums;
     }
 
@@ -131,7 +132,7 @@
       font-size: 13px;
       font-weight: 800;
       letter-spacing: 0.4px;
-      color: #f87171;
+      color: #7dd3fc;
       text-transform: uppercase;
     }
   </style>
