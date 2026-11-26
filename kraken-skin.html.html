@@ -195,6 +195,8 @@
       fill: none;
       stroke-width: 7;
       stroke-linecap: round;
+      stroke-dasharray: 477.52;
+      stroke-dashoffset: 477.52;
       transition: stroke-dashoffset 0.25s ease-out, stroke 0.25s ease-out;
     }
 
@@ -209,13 +211,17 @@
 </head>
 <body>
   <!-- Upper & Lower Half-Circle Load Arcs (radius = 152, half-circle length = pi * 152 = 477.52px) -->
-  <svg class="load-arc-svg" viewBox="0 0 320 320" aria-hidden="true">
+  <svg class="load-arc-svg" width="320" height="320" viewBox="0 0 320 320" aria-hidden="true">
     <!-- Top half-circle: CPU Load (180deg -> 0deg across top) -->
     <path class="load-arc-track" d="M 8 160 A 152 152 0 0 1 312 160" />
     <path
       id="cpu-load-arc"
       class="load-arc-fill cpu-arc-fill"
       d="M 8 160 A 152 152 0 0 1 312 160"
+      stroke="#22c55e"
+      stroke-width="7"
+      stroke-linecap="round"
+      fill="none"
       stroke-dasharray="477.52"
       stroke-dashoffset="477.52"
     />
@@ -226,6 +232,10 @@
       id="gpu-load-arc"
       class="load-arc-fill gpu-arc-fill"
       d="M 8 160 A 152 152 0 0 0 312 160"
+      stroke="#a855f7"
+      stroke-width="7"
+      stroke-linecap="round"
+      fill="none"
       stroke-dasharray="477.52"
       stroke-dashoffset="477.52"
     />
@@ -341,10 +351,19 @@
       const pct = typeof loadValue === 'number' && !Number.isNaN(loadValue)
         ? Math.max(0, Math.min(100, loadValue))
         : 0;
+      const dashOffset = String(halfCircumference * (1 - pct / 100));
+      const nextColor = getLoadPurpleColor(baseRgb, pct);
+      arcEl.setAttribute('stroke-dasharray', String(halfCircumference));
+      arcEl.setAttribute('stroke-dashoffset', dashOffset);
+      arcEl.setAttribute('stroke', nextColor);
       arcEl.style.strokeDasharray = String(halfCircumference);
-      arcEl.style.strokeDashoffset = String(halfCircumference * (1 - pct / 100));
-      arcEl.style.stroke = getLoadPurpleColor(baseRgb, pct);
+      arcEl.style.strokeDashoffset = dashOffset;
+      arcEl.style.stroke = nextColor;
     }
+
+    // Initialize arcs at startup so the indicator is immediately visible in previews
+    updateLoadArc('cpu-load-arc', 35, { r: 34, g: 197, b: 94 });
+    updateLoadArc('gpu-load-arc', 65, { r: 129, g: 140, b: 248 });
 
     // Expose NZXT CAM Web Integration v1 monitoring hook
     window.nzxt = {
