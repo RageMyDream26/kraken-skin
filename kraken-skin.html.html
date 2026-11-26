@@ -31,44 +31,6 @@
       position: relative;
     }
 
-    /* Outer edge load indicator lines along the top (CPU) and bottom (GPU) */
-    .load-bar {
-      position: absolute;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 176px;
-      height: 5px;
-      border-radius: 999px;
-      background: rgba(148, 163, 184, 0.16);
-      overflow: hidden;
-      z-index: 3;
-    }
-
-    .load-bar-top {
-      top: 10px;
-    }
-
-    .load-bar-bottom {
-      bottom: 10px;
-    }
-
-    .load-fill {
-      height: 100%;
-      width: 0%;
-      border-radius: 999px;
-      transition: width 0.25s ease-out;
-    }
-
-    .cpu-load-fill {
-      background: linear-gradient(90deg, #16a34a 0%, #22c55e 100%);
-      box-shadow: 0 0 8px rgba(34, 197, 94, 0.65);
-    }
-
-    .gpu-load-fill {
-      background: linear-gradient(90deg, #9333ea 0%, #a855f7 100%);
-      box-shadow: 0 0 8px rgba(168, 85, 247, 0.65);
-    }
-
     /* Top (CPU) and Bottom (GPU) halves */
     .half {
       flex: 1;
@@ -236,10 +198,10 @@
       stroke-width="7"
       stroke-linecap="round"
       fill="none"
-      stroke-dasharray="477.52"
-      stroke-dashoffset="477.52"
-    />
-  </svg>
+  <!-- Top Edge Load Indicator: CPU Load -->
+  <div class="load-bar load-bar-top" aria-label="CPU Load">
+    <div id="cpu-load-bar" class="load-fill cpu-load-fill"></div>
+  </div>
 
   <!-- Top Section: CPU -->
   <section class="half half-top" aria-label="CPU Metrics">
@@ -271,11 +233,6 @@
       </div>
     </div>
   </section>
-
-  <!-- Bottom Edge Load Indicator: GPU Load -->
-  <div class="load-bar load-bar-bottom" aria-label="GPU Load">
-    <div id="gpu-load-bar" class="load-fill gpu-load-fill"></div>
-  </div>
 
   <script>
     /**
@@ -361,9 +318,29 @@
       arcEl.style.stroke = nextColor;
     }
 
-    // Initialize arcs at startup so the indicator is immediately visible in previews
+    /**
+     * Updates a horizontal load bar's width and color as load increases toward purple.
+     * @param {string} barId - DOM element ID of the bar fill.
+     * @param {number|undefined|null} loadValue - Load percentage (0-100).
+     * @param {{r:number, g:number, b:number}} baseRgb - Starting color at 0% load.
+     */
+    function updateLoadBar(barId, loadValue, baseRgb) {
+      const barEl = document.getElementById(barId);
+      if (!barEl) return;
+      const pct = typeof loadValue === 'number' && !Number.isNaN(loadValue)
+        ? Math.max(0, Math.min(100, loadValue))
+        : 0;
+      const purpleColor = getLoadPurpleColor(baseRgb, pct);
+      barEl.style.width = `${pct}%`;
+      barEl.style.background = `linear-gradient(90deg, ${purpleColor} 0%, #9333ea 100%)`;
+      barEl.style.boxShadow = `0 0 10px ${purpleColor}`;
+    }
+
+    // Initialize arcs and bars at startup so movement and purple shift are immediately visible
     updateLoadArc('cpu-load-arc', 35, { r: 34, g: 197, b: 94 });
     updateLoadArc('gpu-load-arc', 65, { r: 129, g: 140, b: 248 });
+    updateLoadBar('cpu-load-bar', 35, { r: 34, g: 197, b: 94 });
+    updateLoadBar('gpu-load-bar', 65, { r: 129, g: 140, b: 248 });
 
     // Expose NZXT CAM Web Integration v1 monitoring hook
     window.nzxt = {
@@ -380,6 +357,7 @@
               document.getElementById('cpu-temp').textContent = formatMetric(cpu.temperature, '--');
               document.getElementById('cpu-clock').textContent = formatMetric(cpu.frequency, '----');
               updateLoadArc('cpu-load-arc', cpu.load, { r: 34, g: 197, b: 94 });
+              updateLoadBar('cpu-load-bar', cpu.load, { r: 34, g: 197, b: 94 });
             }
 
             if (Array.isArray(gpus) && gpus.length > 0) {
@@ -390,6 +368,7 @@
               document.getElementById('gpu-temp').textContent = formatMetric(discreteGpu.temperature, '--');
               document.getElementById('gpu-clock').textContent = formatMetric(discreteGpu.frequency, '----');
               updateLoadArc('gpu-load-arc', discreteGpu.load, { r: 129, g: 140, b: 248 });
+              updateLoadBar('gpu-load-bar', discreteGpu.load, { r: 129, g: 140, b: 248 });
             }
           } catch (err) {
             console.error('Error updating NZXT Kraken monitoring data:', err);
