@@ -57,8 +57,8 @@
       background: linear-gradient(
         90deg,
         transparent 0%,
-        rgba(34, 211, 238, 0.35) 25%,
-        rgba(236, 72, 153, 0.35) 75%,
+        rgba(52, 211, 153, 0.35) 25%,
+        rgba(56, 189, 248, 0.35) 75%,
         transparent 100%
       );
     }
@@ -77,11 +77,11 @@
     }
 
     .cpu-accent {
-      color: #06b6d4;
+      color: #34d399;
     }
 
     .gpu-accent {
-      color: #ec4899;
+      color: #38bdf8;
     }
 
     .stat-group {
@@ -110,7 +110,7 @@
     .clock {
       font-size: 32.5px;
       font-weight: 800;
-      color: #facc15;
+      color: #e2e8f0;
       font-variant-numeric: tabular-nums;
     }
 
@@ -125,7 +125,7 @@
       font-size: 13px;
       font-weight: 800;
       letter-spacing: 0.4px;
-      color: #fde047;
+      color: #cbd5e1;
       text-transform: uppercase;
     }
 
@@ -155,11 +155,11 @@
     }
 
     .cpu-arc-fill {
-      stroke: #06b6d4;
+      stroke: #34d399;
     }
 
     .gpu-arc-fill {
-      stroke: #ec4899;
+      stroke: #38bdf8;
     }
   </style>
 </head>
@@ -170,7 +170,7 @@
       id="cpu-load-arc"
       class="load-arc-fill cpu-arc-fill"
       d="M 8 160 A 152 152 0 0 1 312 160"
-      stroke="#06b6d4"
+      stroke="#34d399"
       stroke-width="7"
       stroke-linecap="round"
       fill="none"
@@ -183,7 +183,7 @@
       id="gpu-load-arc"
       class="load-arc-fill gpu-arc-fill"
       d="M 8 160 A 152 152 0 0 0 312 160"
-      stroke="#ec4899"
+      stroke="#38bdf8"
       stroke-width="7"
       stroke-linecap="round"
       fill="none"
@@ -221,8 +221,8 @@
   </section>
 
   <script>
-    const CPU_BASE_RGB = { r: 6, g: 182, b: 212 };   // #06b6d4 Electric Cyan
-    const GPU_BASE_RGB = { r: 236, g: 72, b: 153 };  // #ec4899 Hot Pink
+    const CPU_BASE_RGB = { r: 52, g: 211, b: 153 };  // #34d399 Mint
+    const GPU_BASE_RGB = { r: 56, g: 189, b: 248 };  // #38bdf8 Glacier Blue
     const ARC_RADIUS = 152;
     const HALF_CIRCUMFERENCE = Math.PI * ARC_RADIUS;
 
@@ -304,9 +304,10 @@
       return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
     }
 
+    // Interpolates between base RGB color and Indigo (#6366f1) as load increases (0% -> 100%)
     function getLoadPeakColor(baseRgb, loadPct) {
       const clamped = Math.max(0, Math.min(100, Number(loadPct) || 0));
-      const peakRgb = { r: 244, g: 63, b: 94 }; // #f43f5e Neon Rose
+      const peakRgb = { r: 99, g: 102, b: 241 }; // #6366f1 Indigo
       const t = clamped / 100;
       return rgbToHex({
         r: baseRgb.r + (peakRgb.r - baseRgb.r) * t,
