@@ -238,17 +238,12 @@
     const CPU_BASE_RGB = { r: 34, g: 197, b: 94 };
     const GPU_BASE_RGB = { r: 129, g: 140, b: 248 };
     const ARC_RADIUS = 152;
-    const HALF_CIRCUMFERENCE = Math.PI * ARC_RADIUS; // ~477.52px for 0%..100% of semicircle
+    const HALF_CIRCUMFERENCE = Math.PI * ARC_RADIUS;
 
     let hasLiveTelemetry = false;
     let demoStartTime = null;
     let lastPreviewFrameTime = 0;
 
-    /**
-- Converts numeric values, numeric strings, or nested metric objects into a finite number.
-- @param {unknown} raw
-- @returns {number|undefined}
-     */
     function toFiniteMetricNumber(raw) {
       if (typeof raw === 'number') {
         return Number.isFinite(raw) ? raw : undefined;
@@ -260,7 +255,7 @@
         return Number.isFinite(parsed) ? parsed : undefined;
       }
       if (raw && typeof raw === 'object') {
-        for (const key of ['value', 'load', 'utilization', 'usage', 'percentage', 'percent', 'current']) {
+        for (const key of ['value', 'load', 'utilization', 'usage', 'percentage', 'percent', 'current', 'temperature', 'frequency', 'clock']) {
           if (key in raw) {
             const nested = toFiniteMetricNumber(raw[key]);
             if (nested !== undefined) return nested;
@@ -270,11 +265,17 @@
       return undefined;
     }
 
-    /**
-- Normalizes raw load values (0..100 or 0..1 ratio) into a 0..100 percentage.
-- @param {number} val
-- @returns {number}
-     */
+    function pickFirstMetric(hw, keys, fallback) {
+      if (!hw || typeof hw !== 'object') return fallback;
+      for (const key of keys) {
+        if (key in hw) {
+          const num = toFiniteMetricNumber(hw[key]);
+          if (num !== undefined) return String(Math.round(num));
+        }
+      }
+      return fallback;
+    }
+
     function normalizeLoadPercent(val) {
       if (val > 0 && val <= 1) {
         return Math.max(0, Math.min(100, val * 100));
@@ -282,12 +283,6 @@
       return Math.max(0, Math.min(100, val));
     }
 
-    /**
-- Extracts numeric load percentage (0-100) from NZXT CAM hardware objects.
-- Supports common NZXT CAM property names across SDK/CAM builds.
-- @param {object|undefined|null} hw
-- @returns {number|undefined}
-     */
     function extractLoadPercent(hw) {
       if (!hw || typeof hw !== 'object') return undefined;
       const candidates = [
@@ -309,52 +304,31 @@
       return undefined;
     }
 
-    /**
-- Formats hardware names cleanly with a fallback label.
-- @param {unknown} name
-- @param {string} fallback
-- @returns {string}
-     */
-    function cleanHardwareName(name, fallback) {
+    function cleanHardwareName(name, fallback, isGpu = false) {
       if (typeof name !== 'string') return fallback;
-      const cleaned = name
+      let cleaned = name
         .replace(/\(R\)|\(TM\)|Processor|Graphics/gi, '')
         .replace(/\s+/g, ' ')
         .trim();
+
+      if (isGpu) {
+        cleaned = cleaned
+          .replace(/\b(AMD|Radeon|NVIDIA|GeForce|Intel|Arc)\b/gi, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+      }
+
       return cleaned || fallback;
     }
 
-    /**
-- Formats numeric telemetry metrics cleanly with a fallback token.
-- @param {unknown} value
-- @param {string} fallback
-- @returns {string}
-     */
-    function formatMetric(value, fallback) {
-      const num = toFiniteMetricNumber(value);
-      if (num === undefined) return fallback;
-      return String(Math.round(num));
-    }
-
-    /**
-- Converts a 0-100 RGB triple to a CSS hex string.
-- @param {{r:number, g:number, b:number}} rgb
-- @returns {string}
-     */
     function rgbToHex({ r, g, b }) {
       const toHex = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0');
       return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
     }
 
-    /**
-- Interpolates between a base RGB color and purple (#a855f7) as load increases (0% -> 100%).
-- @param {{r:number, g:number, b:number}} baseRgb
-- @param {number} loadPct - Percentage load (0 to 100).
-- @returns {string}
-     */
     function getLoadPurpleColor(baseRgb, loadPct) {
       const clamped = Math.max(0, Math.min(100, Number(loadPct) || 0));
-      const purpleRgb = { r: 168, g: 85, b: 247 }; // #a855f7
+      const purpleRgb = { r: 168, g: 85, b: 247 };
       const t = clamped / 100;
       return rgbToHex({
         r: baseRgb.r + (purpleRgb.r - baseRgb.r) * t,
@@ -363,13 +337,6 @@
       });
     }
 
-    /**
-- Updates a semicircular load arc where 0% is empty, 50% is half the arc,
-- and 100% fills the entire semicircle, shifting smoothly into purple as load increases.
-- @param {string} arcId - DOM element ID of the arc path.
-- @param {number|undefined|null} loadValue - Load percentage (0-100).
-- @param {{r:number, g:number, b:number}} baseRgb - Starting color at 0% load.
-     */
     function updateLoadArc(arcId, loadValue, baseRgb) {
       const arcEl = document.getElementById(arcId);
       if (!arcEl) return;
@@ -377,9 +344,6 @@
         return;
       }
       const pct = Math.max(0, Math.min(100, Number(loadValue)));
-      // 0% -> offset = HALF_CIRCUMFERENCE (empty)
-      // 50% -> offset = HALF_CIRCUMFERENCE * 0.5 (half of semicircle)
-      // 100% -> offset = 0 (full semicircle)
       const dashOffset = String(HALF_CIRCUMFERENCE * (1 - pct / 100));
       const nextColor = getLoadPurpleColor(baseRgb, pct);
       arcEl.setAttribute('stroke-dasharray', String(HALF_CIRCUMFERENCE));
@@ -390,16 +354,10 @@
       arcEl.style.stroke = nextColor;
     }
 
-    /**
-- Animates the semicircular arcs across 5%, 10%, 20%, 25%, 50%, and up to 100%
-- in preview mode until live NZXT CAM telemetry arrives.
-- @param {number} timestamp
-     */
     function animateLoadPreview(timestamp) {
       if (hasLiveTelemetry) return;
       if (demoStartTime === null) demoStartTime = timestamp;
 
-      // Throttle preview arc updates so it stays lightweight on 320x320 LCD/preview WebViews
       if (timestamp - lastPreviewFrameTime >= 80) {
         lastPreviewFrameTime = timestamp;
         const elapsedSec = (timestamp - demoStartTime) / 1000;
@@ -413,33 +371,27 @@
       requestAnimationFrame(animateLoadPreview);
     }
 
-    /**
-- Populates fallback sample telemetry in standalone/browser previews when NZXT CAM
-- has not pushed a live onMonitoringDataUpdate payload yet.
-     */
     function applyFallbackPreviewTelemetry() {
       if (hasLiveTelemetry) return;
       const cpuEl = document.getElementById('cpu-name');
       const gpuEl = document.getElementById('gpu-name');
       if (cpuEl && cpuEl.textContent === 'CPU') {
-        cpuEl.textContent = 'Ryzen 9 7950X';
+        cpuEl.textContent = cleanHardwareName('Ryzen 9 7950X', 'CPU', false);
         document.getElementById('cpu-temp').textContent = '64';
         document.getElementById('cpu-clock').textContent = '5150';
       }
       if (gpuEl && gpuEl.textContent === 'GPU') {
-        gpuEl.textContent = 'RTX 4090';
+        gpuEl.textContent = cleanHardwareName('AMD Radeon RX 7900 XTX', 'GPU', true);
         document.getElementById('gpu-temp').textContent = '58';
         document.getElementById('gpu-clock').textContent = '2640';
       }
     }
 
-    // Start preview sweep and fallback telemetry so standalone previews never look frozen/blank
     updateLoadArc('cpu-load-arc', 50, CPU_BASE_RGB);
     updateLoadArc('gpu-load-arc', 50, GPU_BASE_RGB);
     setTimeout(applyFallbackPreviewTelemetry, 1500);
     requestAnimationFrame(animateLoadPreview);
 
-    // Expose NZXT CAM Web Integration v1 monitoring hook
     window.nzxt = {
       v1: {
         onMonitoringDataUpdate: (data) => {
@@ -447,14 +399,23 @@
             if (!data || typeof data !== 'object') return;
             hasLiveTelemetry = true;
 
-            const { cpus, gpus } = data;
+            const cpus = data.cpus || data.Cpus;
+            const gpus = data.gpus || data.Gpus;
 
             if (Array.isArray(cpus) && cpus.length > 0) {
               const cpu = cpus[0];
               const cpuLoad = extractLoadPercent(cpu);
-              document.getElementById('cpu-name').textContent = cleanHardwareName(cpu.name, 'CPU');
-              document.getElementById('cpu-temp').textContent = formatMetric(cpu.temperature, '--');
-              document.getElementById('cpu-clock').textContent = formatMetric(cpu.frequency, '----');
+              document.getElementById('cpu-name').textContent = cleanHardwareName(cpu.name, 'CPU', false);
+              document.getElementById('cpu-temp').textContent = pickFirstMetric(
+                cpu,
+                ['temperature', 'temp'],
+                '--'
+              );
+              document.getElementById('cpu-clock').textContent = pickFirstMetric(
+                cpu,
+                ['frequency', 'clock', 'coreClock'],
+                '----'
+              );
               updateLoadArc('cpu-load-arc', cpuLoad, CPU_BASE_RGB);
             }
 
@@ -463,17 +424,17 @@
                 gpus.find((g) => g && g.name && !/intel.*(uhd|iris)|radeon\(tm\) graphics/i.test(g.name)) ||
                 gpus[0];
               const gpuLoad = extractLoadPercent(discreteGpu);
-              document.getElementById('gpu-name').textContent = cleanHardwareName(discreteGpu.name, 'GPU');
-              document.getElementById('gpu-temp').textContent = formatMetric(discreteGpu.temperature, '--');
-              document.getElementById('gpu-clock').textContent = formatMetric(discreteGpu.frequency, '----');
+              document.getElementById('gpu-name').textContent = cleanHardwareName(discreteGpu.name, 'GPU', true);
+              document.getElementById('gpu-temp').textContent = pickFirstMetric(
+                discreteGpu,
+                ['temperature', 'temp'],
+                '--'
+              );
+              document.getElementById('gpu-clock').textContent = pickFirstMetric(
+                discreteGpu,
+                ['frequency', 'clock', 'coreClock', 'graphicsClock'],
+                '----'
+              );
               updateLoadArc('gpu-load-arc', gpuLoad, GPU_BASE_RGB);
             }
           } catch (err) {
-            console.error('Error updating NZXT Kraken monitoring data:', err);
-          }
-        }
-      }
-    };
-  </script>
-</body>
-</html>
