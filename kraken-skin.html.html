@@ -115,6 +115,338 @@
     }
 
     .clock {
-      font-size: 26px;
+      font-size: 32.5px;
       font-weight: 800;
-      color: #38bdf
+      color: #38bdf8;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .unit {
+      font-size: 17px;
+      font-weight: 700;
+      color: #94a3b8;
+      margin-left: 2px;
+    }
+
+    .clock-unit {
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.4px;
+      color: #7dd3fc;
+      text-transform: uppercase;
+    }
+
+    /* Semicircular top (CPU) and bottom (GPU) load indicator arcs */
+    .load-arc-svg {
+      position: absolute;
+      inset: 0;
+      width: 320px;
+      height: 320px;
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .load-arc-track {
+      fill: none;
+      stroke: rgba(148, 163, 184, 0.16);
+      stroke-width: 7;
+      stroke-linecap: round;
+    }
+
+    .load-arc-fill {
+      fill: none;
+      stroke-width: 7;
+      stroke-linecap: round;
+      stroke-dasharray: 477.52;
+      stroke-dashoffset: 477.52;
+      transition: stroke-dashoffset 0.25s ease-out, stroke 0.25s ease-out;
+    }
+
+    .cpu-arc-fill {
+      stroke: #22c55e;
+    }
+
+    .gpu-arc-fill {
+      stroke: #a855f7;
+    }
+  </style>
+</head>
+<body>
+  <!-- Upper & Lower Half-Circle Load Arcs (radius = 152, half-circle length = pi * 152 = 477.52px) -->
+  <svg class="load-arc-svg" width="320" height="320" viewBox="0 0 320 320" aria-hidden="true">
+    <!-- Top half-circle: CPU Load (180deg -> 0deg across top) -->
+    <path class="load-arc-track" d="M 8 160 A 152 152 0 0 1 312 160" />
+    <path
+      id="cpu-load-arc"
+      class="load-arc-fill cpu-arc-fill"
+      d="M 8 160 A 152 152 0 0 1 312 160"
+      stroke="#22c55e"
+      stroke-width="7"
+      stroke-linecap="round"
+      fill="none"
+      stroke-dasharray="477.52"
+      stroke-dashoffset="477.52"
+    />
+
+    <!-- Bottom half-circle: GPU Load (180deg -> 0deg across bottom) -->
+    <path class="load-arc-track" d="M 8 160 A 152 152 0 0 0 312 160" />
+    <path
+      id="gpu-load-arc"
+      class="load-arc-fill gpu-arc-fill"
+      d="M 8 160 A 152 152 0 0 0 312 160"
+      stroke="#a855f7"
+      stroke-width="7"
+      stroke-linecap="round"
+      fill="none"
+      stroke-dasharray="477.52"
+      stroke-dashoffset="477.52"
+    />
+  </svg>
+
+  <!-- Top Section: CPU -->
+  <section class="half half-top" aria-label="CPU Metrics">
+    <div id="cpu-name" class="hw-name cpu-accent">CPU</div>
+    <div class="stat-group">
+      <div class="temp">
+        <span id="cpu-temp">--</span><span class="unit">°C</span>
+      </div>
+      <div class="clock-box">
+        <span id="cpu-clock" class="clock">----</span>
+        <span class="clock-unit">MHz</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Horizontal Divider Between Top and Bottom Halves -->
+  <div class="h-divider" aria-hidden="true"></div>
+
+  <!-- Bottom Section: GPU -->
+  <section class="half half-bottom" aria-label="GPU Metrics">
+    <div id="gpu-name" class="hw-name gpu-accent">GPU</div>
+    <div class="stat-group">
+      <div class="temp">
+        <span id="gpu-temp">--</span><span class="unit">°C</span>
+      </div>
+      <div class="clock-box">
+        <span id="gpu-clock" class="clock">----</span>
+        <span class="clock-unit">MHz</span>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    const CPU_BASE_RGB = { r: 34, g: 197, b: 94 };
+    const GPU_BASE_RGB = { r: 129, g: 140, b: 248 };
+    const ARC_RADIUS = 152;
+    const HALF_CIRCUMFERENCE = Math.PI * ARC_RADIUS; // ~477.52px for 0%..100% of semicircle
+
+    let hasLiveTelemetry = false;
+    let demoStartTime = null;
+    let lastPreviewFrameTime = 0;
+
+    /**
+- Converts numeric values, numeric strings, or nested metric objects into a finite number.
+- @param {unknown} raw
+- @returns {number|undefined}
+     */
+    function toFiniteMetricNumber(raw) {
+      if (typeof raw === 'number') {
+        return Number.isFinite(raw) ? raw : undefined;
+      }
+      if (typeof raw === 'string') {
+        const trimmed = raw.trim().replace('%', '');
+        if (!trimmed) return undefined;
+        const parsed = Number(trimmed);
+        return Number.isFinite(parsed) ? parsed : undefined;
+      }
+      if (raw && typeof raw === 'object') {
+        for (const key of ['value', 'load', 'utilization', 'usage', 'percentage', 'percent', 'current']) {
+          if (key in raw) {
+            const nested = toFiniteMetricNumber(raw[key]);
+            if (nested !== undefined) return nested;
+          }
+        }
+      }
+      return undefined;
+    }
+
+    /**
+- Normalizes raw load values (0..100 or 0..1 ratio) into a 0..100 percentage.
+- @param {number} val
+- @returns {number}
+     */
+    function normalizeLoadPercent(val) {
+      if (val > 0 && val <= 1) {
+        return Math.max(0, Math.min(100, val * 100));
+      }
+      return Math.max(0, Math.min(100, val));
+    }
+
+    /**
+- Extracts numeric load percentage (0-100) from NZXT CAM hardware objects.
+- Supports common NZXT CAM property names across SDK/CAM builds.
+- @param {object|undefined|null} hw
+- @returns {number|undefined}
+     */
+    function extractLoadPercent(hw) {
+      if (!hw || typeof hw !== 'object') return undefined;
+      const candidates = [
+        hw.load,
+        hw.utilization,
+        hw.usage,
+        hw.totalLoad,
+        hw.loadPercent,
+        hw.loadPercentage,
+        hw.gpuLoad,
+        hw.cpuLoad
+      ];
+      for (const candidate of candidates) {
+        const num = toFiniteMetricNumber(candidate);
+        if (num !== undefined) {
+          return normalizeLoadPercent(num);
+        }
+      }
+      return undefined;
+    }
+
+    /**
+- Formats hardware names cleanly with a fallback label.
+- @param {unknown} name
+- @param {string} fallback
+- @returns {string}
+     */
+    function cleanHardwareName(name, fallback) {
+      if (typeof name !== 'string') return fallback;
+      const cleaned = name
+        .replace(/\(R\)|\(TM\)|Processor|Graphics/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      return cleaned || fallback;
+    }
+
+    /**
+- Formats numeric telemetry metrics cleanly with a fallback token.
+- @param {unknown} value
+- @param {string} fallback
+- @returns {string}
+     */
+    function formatMetric(value, fallback) {
+      const num = toFiniteMetricNumber(value);
+      if (num === undefined) return fallback;
+      return String(Math.round(num));
+    }
+
+    /**
+- Converts a 0-100 RGB triple to a CSS hex string.
+- @param {{r:number, g:number, b:number}} rgb
+- @returns {string}
+     */
+    function rgbToHex({ r, g, b }) {
+      const toHex = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0');
+      return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+    }
+
+    /**
+- Interpolates between a base RGB color and purple (#a855f7) as load increases (0% -> 100%).
+- @param {{r:number, g:number, b:number}} baseRgb
+- @param {number} loadPct - Percentage load (0 to 100).
+- @returns {string}
+     */
+    function getLoadPurpleColor(baseRgb, loadPct) {
+      const clamped = Math.max(0, Math.min(100, Number(loadPct) || 0));
+      const purpleRgb = { r: 168, g: 85, b: 247 }; // #a855f7
+      const t = clamped / 100;
+      return rgbToHex({
+        r: baseRgb.r + (purpleRgb.r - baseRgb.r) * t,
+        g: baseRgb.g + (purpleRgb.g - baseRgb.g) * t,
+        b: baseRgb.b + (purpleRgb.b - baseRgb.b) * t
+      });
+    }
+
+    /**
+- Updates a semicircular load arc where 0% is empty, 50% is half the arc,
+- and 100% fills the entire semicircle, shifting smoothly into purple as load increases.
+- @param {string} arcId - DOM element ID of the arc path.
+- @param {number|undefined|null} loadValue - Load percentage (0-100).
+- @param {{r:number, g:number, b:number}} baseRgb - Starting color at 0% load.
+     */
+    function updateLoadArc(arcId, loadValue, baseRgb) {
+      const arcEl = document.getElementById(arcId);
+      if (!arcEl) return;
+      if (loadValue === undefined || loadValue === null || Number.isNaN(Number(loadValue))) {
+        return;
+      }
+      const pct = Math.max(0, Math.min(100, Number(loadValue)));
+      // 0% -> offset = HALF_CIRCUMFERENCE (empty)
+      // 50% -> offset = HALF_CIRCUMFERENCE * 0.5 (half of semicircle)
+      // 100% -> offset = 0 (full semicircle)
+      const dashOffset = String(HALF_CIRCUMFERENCE * (1 - pct / 100));
+      const nextColor = getLoadPurpleColor(baseRgb, pct);
+      arcEl.setAttribute('stroke-dasharray', String(HALF_CIRCUMFERENCE));
+      arcEl.setAttribute('stroke-dashoffset', dashOffset);
+      arcEl.setAttribute('stroke', nextColor);
+      arcEl.style.strokeDasharray = String(HALF_CIRCUMFERENCE);
+      arcEl.style.strokeDashoffset = dashOffset;
+      arcEl.style.stroke = nextColor;
+    }
+
+    /**
+- Animates the semicircular arcs across 5%, 10%, 20%, 25%, 50%, and up to 100%
+- in preview mode until live NZXT CAM telemetry arrives.
+- @param {number} timestamp
+     */
+    function animateLoadPreview(timestamp) {
+      if (hasLiveTelemetry) return;
+      if (demoStartTime === null) demoStartTime = timestamp;
+
+      // Throttle preview arc updates so it stays lightweight on 320x320 LCD/preview WebViews
+      if (timestamp - lastPreviewFrameTime >= 80) {
+        lastPreviewFrameTime = timestamp;
+        const elapsedSec = (timestamp - demoStartTime) / 1000;
+        const cpuPct = ((Math.sin(elapsedSec * 1.15) + 1) / 2) * 100;
+        const gpuPct = ((Math.sin(elapsedSec * 1.15 - Math.PI / 2) + 1) / 2) * 100;
+
+        updateLoadArc('cpu-load-arc', cpuPct, CPU_BASE_RGB);
+        updateLoadArc('gpu-load-arc', gpuPct, GPU_BASE_RGB);
+      }
+
+      requestAnimationFrame(animateLoadPreview);
+    }
+
+    /**
+- Populates fallback sample telemetry in standalone/browser previews when NZXT CAM
+- has not pushed a live onMonitoringDataUpdate payload yet.
+     */
+    function applyFallbackPreviewTelemetry() {
+      if (hasLiveTelemetry) return;
+      const cpuEl = document.getElementById('cpu-name');
+      const gpuEl = document.getElementById('gpu-name');
+      if (cpuEl && cpuEl.textContent === 'CPU') {
+        cpuEl.textContent = 'Ryzen 9 7950X';
+        document.getElementById('cpu-temp').textContent = '64';
+        document.getElementById('cpu-clock').textContent = '5150';
+      }
+      if (gpuEl && gpuEl.textContent === 'GPU') {
+        gpuEl.textContent = 'RTX 4090';
+        document.getElementById('gpu-temp').textContent = '58';
+        document.getElementById('gpu-clock').textContent = '2640';
+      }
+    }
+
+    // Start preview sweep and fallback telemetry so standalone previews never look frozen/blank
+    updateLoadArc('cpu-load-arc', 50, CPU_BASE_RGB);
+    updateLoadArc('gpu-load-arc', 50, GPU_BASE_RGB);
+    setTimeout(applyFallbackPreviewTelemetry, 1500);
+    requestAnimationFrame(animateLoadPreview);
+
+    // Expose NZXT CAM Web Integration v1 monitoring hook
+    window.nzxt = {
+      v1: {
+        onMonitoringDataUpdate: (data) => {
+          try {
+            if (!data || typeof data !== 'object') return;
+            hasLiveTelemetry = true;
+
+            const { cpus, gpus } = data;
+
+            if (Array.isArray(cpus)
