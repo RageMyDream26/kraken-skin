@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=320, initial-scale=1.0" />
   <title>NZXT Kraken Z — Top/Bottom Hardware Monitor</title>
   <style>
-    /* Reset spacing and lock viewport to the 320x320 circular Kraken Z LCD */
     *, *::before, *::after {
       box-sizing: border-box;
       margin: 0;
@@ -31,7 +30,6 @@
       position: relative;
     }
 
-    /* Top (CPU) and Bottom (GPU) halves */
     .half {
       flex: 1;
       width: 100%;
@@ -43,17 +41,14 @@
       min-height: 0;
     }
 
-    /* Pad top half inward so enlarged name and stats clear the circular top edge */
     .half-top {
       padding: 20px 10px 2px 10px;
     }
 
-    /* Pad bottom half inward so enlarged name and stats clear the circular bottom edge */
     .half-bottom {
       padding: 2px 10px 20px 10px;
     }
 
-    /* Horizontal divider line between top and bottom halves */
     .h-divider {
       width: 68%;
       height: 1px;
@@ -68,7 +63,6 @@
       );
     }
 
-    /* Hardware name label sized to fit cleanly inside the circular Kraken Z display */
     .hw-name {
       font-size: 22px;
       font-weight: 800;
@@ -90,7 +84,6 @@
       color: #ec4899;
     }
 
-    /* Temperature and clock speed row inside each half */
     .stat-group {
       display: flex;
       flex-direction: row;
@@ -136,7 +129,6 @@
       text-transform: uppercase;
     }
 
-    /* Semicircular top (CPU) and bottom (GPU) load indicator arcs */
     .load-arc-svg {
       position: absolute;
       inset: 0;
@@ -172,9 +164,7 @@
   </style>
 </head>
 <body>
-  <!-- Upper & Lower Half-Circle Load Arcs (radius = 152, half-circle length = pi * 152 = 477.52px) -->
   <svg class="load-arc-svg" width="320" height="320" viewBox="0 0 320 320" aria-hidden="true">
-    <!-- Top half-circle: CPU Load (180deg -> 0deg across top) -->
     <path class="load-arc-track" d="M 8 160 A 152 152 0 0 1 312 160" />
     <path
       id="cpu-load-arc"
@@ -188,7 +178,6 @@
       stroke-dashoffset="477.52"
     />
 
-    <!-- Bottom half-circle: GPU Load (180deg -> 0deg across bottom) -->
     <path class="load-arc-track" d="M 8 160 A 152 152 0 0 0 312 160" />
     <path
       id="gpu-load-arc"
@@ -203,7 +192,6 @@
     />
   </svg>
 
-  <!-- Top Section: CPU -->
   <section class="half half-top" aria-label="CPU Metrics">
     <div id="cpu-name" class="hw-name cpu-accent">CPU</div>
     <div class="stat-group">
@@ -217,10 +205,8 @@
     </div>
   </section>
 
-  <!-- Horizontal Divider Between Top and Bottom Halves -->
   <div class="h-divider" aria-hidden="true"></div>
 
-  <!-- Bottom Section: GPU -->
   <section class="half half-bottom" aria-label="GPU Metrics">
     <div id="gpu-name" class="hw-name gpu-accent">GPU</div>
     <div class="stat-group">
@@ -238,7 +224,7 @@
     const CPU_BASE_RGB = { r: 6, g: 182, b: 212 };   // #06b6d4 Electric Cyan
     const GPU_BASE_RGB = { r: 236, g: 72, b: 153 };  // #ec4899 Hot Pink
     const ARC_RADIUS = 152;
-    const HALF_CIRCUMFERENCE = Math.PI * ARC_RADIUS; // ~477.52px for 0%..100% of semicircle
+    const HALF_CIRCUMFERENCE = Math.PI * ARC_RADIUS;
 
     let hasLiveTelemetry = false;
     let demoStartTime = null;
@@ -255,7 +241,7 @@
         return Number.isFinite(parsed) ? parsed : undefined;
       }
       if (raw && typeof raw === 'object') {
-        for (const key of ['value', 'load', 'utilization', 'usage', 'percentage', 'percent', 'current']) {
+        for (const key of ['value', 'load', 'utilization', 'usage', 'percentage', 'percent', 'current', 'temperature', 'temp', 'frequency', 'clock']) {
           if (key in raw) {
             const nested = toFiniteMetricNumber(raw[key]);
             if (nested !== undefined) return nested;
@@ -263,6 +249,17 @@
         }
       }
       return undefined;
+    }
+
+    function pickMetric(hw, keys, fallback) {
+      if (!hw || typeof hw !== 'object') return fallback;
+      for (const key of keys) {
+        if (key in hw) {
+          const num = toFiniteMetricNumber(hw[key]);
+          if (num !== undefined) return String(Math.round(num));
+        }
+      }
+      return fallback;
     }
 
     function normalizeLoadPercent(val) {
@@ -302,18 +299,11 @@
       return cleaned || fallback;
     }
 
-    function formatMetric(value, fallback) {
-      const num = toFiniteMetricNumber(value);
-      if (num === undefined) return fallback;
-      return String(Math.round(num));
-    }
-
     function rgbToHex({ r, g, b }) {
       const toHex = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0');
       return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
     }
 
-    // Interpolates between base RGB color and Neon Rose (#f43f5e) as load increases (0% -> 100%)
     function getLoadPeakColor(baseRgb, loadPct) {
       const clamped = Math.max(0, Math.min(100, Number(loadPct) || 0));
       const peakRgb = { r: 244, g: 63, b: 94 }; // #f43f5e Neon Rose
@@ -380,33 +370,35 @@
     setTimeout(applyFallbackPreviewTelemetry, 1500);
     requestAnimationFrame(animateLoadPreview);
 
-    // Expose NZXT CAM Web Integration v1 monitoring hook
     window.nzxt = {
       v1: {
         onMonitoringDataUpdate: (data) => {
           try {
             if (!data || typeof data !== 'object') return;
+
+            const cpus = Array.isArray(data.cpus) ? data.cpus : [];
+            const gpus = Array.isArray(data.gpus) ? data.gpus : [];
+            if (cpus.length === 0 && gpus.length === 0) return;
+
             hasLiveTelemetry = true;
 
-            const { cpus, gpus } = data;
-
-            if (Array.isArray(cpus) && cpus.length > 0) {
+            if (cpus.length > 0) {
               const cpu = cpus[0];
               const cpuLoad = extractLoadPercent(cpu);
               document.getElementById('cpu-name').textContent = cleanHardwareName(cpu.name, 'CPU');
-              document.getElementById('cpu-temp').textContent = formatMetric(cpu.temperature, '--');
-              document.getElementById('cpu-clock').textContent = formatMetric(cpu.frequency, '----');
+              document.getElementById('cpu-temp').textContent = pickMetric(cpu, ['temperature', 'temp'], '--');
+              document.getElementById('cpu-clock').textContent = pickMetric(cpu, ['frequency', 'clock', 'coreClock'], '----');
               updateLoadArc('cpu-load-arc', cpuLoad, CPU_BASE_RGB);
             }
 
-            if (Array.isArray(gpus) && gpus.length > 0) {
+            if (gpus.length > 0) {
               const discreteGpu =
                 gpus.find((g) => g && g.name && !/intel.*(uhd|iris)|radeon\(tm\) graphics/i.test(g.name)) ||
                 gpus[0];
               const gpuLoad = extractLoadPercent(discreteGpu);
               document.getElementById('gpu-name').textContent = cleanHardwareName(discreteGpu.name, 'GPU');
-              document.getElementById('gpu-temp').textContent = formatMetric(discreteGpu.temperature, '--');
-              document.getElementById('gpu-clock').textContent = formatMetric(discreteGpu.frequency, '----');
+              document.getElementById('gpu-temp').textContent = pickMetric(discreteGpu, ['temperature', 'temp'], '--');
+              document.getElementById('gpu-clock').textContent = pickMetric(discreteGpu, ['frequency', 'clock', 'coreClock', 'graphicsClock'], '----');
               updateLoadArc('gpu-load-arc', gpuLoad, GPU_BASE_RGB);
             }
           } catch (err) {
