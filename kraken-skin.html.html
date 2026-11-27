@@ -449,4 +449,31 @@
 
             const { cpus, gpus } = data;
 
-            if (Array.isArray(cpus)
+            if (Array.isArray(cpus) && cpus.length > 0) {
+              const cpu = cpus[0];
+              const cpuLoad = extractLoadPercent(cpu);
+              document.getElementById('cpu-name').textContent = cleanHardwareName(cpu.name, 'CPU');
+              document.getElementById('cpu-temp').textContent = formatMetric(cpu.temperature, '--');
+              document.getElementById('cpu-clock').textContent = formatMetric(cpu.frequency, '----');
+              updateLoadArc('cpu-load-arc', cpuLoad, CPU_BASE_RGB);
+            }
+
+            if (Array.isArray(gpus) && gpus.length > 0) {
+              const discreteGpu =
+                gpus.find((g) => g && g.name && !/intel.*(uhd|iris)|radeon\(tm\) graphics/i.test(g.name)) ||
+                gpus[0];
+              const gpuLoad = extractLoadPercent(discreteGpu);
+              document.getElementById('gpu-name').textContent = cleanHardwareName(discreteGpu.name, 'GPU');
+              document.getElementById('gpu-temp').textContent = formatMetric(discreteGpu.temperature, '--');
+              document.getElementById('gpu-clock').textContent = formatMetric(discreteGpu.frequency, '----');
+              updateLoadArc('gpu-load-arc', gpuLoad, GPU_BASE_RGB);
+            }
+          } catch (err) {
+            console.error('Error updating NZXT Kraken monitoring data:', err);
+          }
+        }
+      }
+    };
+  </script>
+</body>
+</html>
